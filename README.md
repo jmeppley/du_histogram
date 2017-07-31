@@ -1,6 +1,17 @@
 # du_histogram
 Simple ASCII histogram of du (disk usage) output
 
+```
+[jmeppley@localhost duhist]$ ./duhist.py
+command: du -d 0 -x -k *
+cwd: .
+setup.py       4K |=====================
+README.md      4K |=====================
+duhist.py      8K |=========================================
+LICENSE       12K |=============================================================
+Total: 28K
+```
+
 ## What it does
 This script runs the "du" utility and prints a text histogram of the output sorted by size
 or date.
