@@ -26,7 +26,6 @@ setup(name=NAME,
       url=URL,
       download_url=DOWNLOAD_URL,
       license=LICENSE,
-      packages=[,],
       scripts=['duhist.py',],
       classifiers=[
           'Development Status :: 4 - Beta',
