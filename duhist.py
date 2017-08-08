@@ -137,9 +137,9 @@ def main(arguments):
 
     # run du
     one_fs_arg = "-x" if one_fs else ""
-    print('command: du -d 0 %s -k *' % (one_fs_arg))
+    print('command: du --max-depth 0 %s -k *' % (one_fs_arg))
     print('cwd: %s' % (directory))
-    p=subprocess.Popen('du -d 0 %s -k *' % (one_fs_arg),
+    p=subprocess.Popen('du --max-depth 0 %s -k *' % (one_fs_arg),
                        shell=True,
                        stdout=subprocess.PIPE,
                        cwd=directory)
