@@ -12,12 +12,11 @@ All three outputs can be generated on one run. This is useful, because it
 can take a long time to gather the underlying data.
 
 Usage:
-  find_old_files.py -H [-t <age_bin_type>] [-a <min_age>] [-w <WIDTH>] \
-[-Xv] <directory>
-  find_old_files.py -L <output_list> [-t <age_bin_type>] [-a <min_age>] \
-[-u=<USER>...] [-Xv] <directory>
-  find_old_files.py -T <output_table> [-s <age_bin_size>] [-t <age_bin_type>] \
-[-a <min_age>] <output_table> [-Xv] <directory>
+  find_old_files.py -H <directory>
+  find_old_files.py -L <output_list> <directory>
+  find_old_files.py -T <output_table> <directory>
+  find_old_files.py [-H] [-w <WIDTH>] [-T <output_table>] [-L <output_list>] \
+[-t <age_bin_type>] [-s <age_bin_size>] [-a <min_age>] [-u=<USER>...] [-Xv] <directory>
   find_old_files.py -h | --help
   find_old_files.py --version
 
@@ -33,14 +32,14 @@ Options:
   -a <min_age>, --age <min_age>              Minimum file age to considers
                                              unit is set by --type 
                                              [default: 6]
-  -s <age_bin_size>, --size <age_bin_size>   Age bins for table outpus
+  -s <age_bin_size>, --size <age_bin_size>   Age bins for table outputs
                                              [default: 6]
   -u <USER>, --user <USER>                   Limit results to userids
                                              use multiple flags for g.t. 1 user
                                              must be uid num, not name
   -X, --follow_links                         Follow symbolic links
   -H, --hist     Print text histogram of usage by user to stdout
-  -w <WIDTH>     Width of text histogram [default: 80]
+  -w <WIDTH>, --width <WIDTH>                Width of text histogram [default: 80]
 
 """
 from docopt import docopt
@@ -67,7 +66,7 @@ def main(arguments):
     output_table = arguments['--table']
     output_list = arguments['--list']
     print_histogram = arguments['--hist']
-    text_width = int(arguments['-w'])
+    text_width = int(arguments['--width'])
     age_bin_size = int(arguments['--size'])
     age_bin_type = arguments['--type']
 
@@ -92,12 +91,13 @@ def main(arguments):
     if output_list:
         with open(output_list, 'wt') as output_handle:
             for user, file_data_list in vol_data.items():
-                output_handle.write('# ' + user)
+                output_handle.write('# ' + str(user) + "\n")
                 # sort files by mtime
                 for file_data in sorted(file_data_list,
                                         key=lambda t: t[1],
                                        ):
-                    output_handle.write(file_data[2])
+                    output_handle.write(handle_funky_chars(file_data[2]))
+                    output_handle.write("\n")
 
     # table needed for histogram or table
     if output_table or print_histogram:
@@ -131,6 +131,9 @@ time_spans = {
     'months': 3600*24*30,
 }
 
+def handle_funky_chars(decoded_string):
+    return decoded_string.encode('utf8','surrogateescape').decode('utf8','replace')
+
 def generate_text_table(data, max_width,
                         sorted_keys=None,
                         label_width=10,
@@ -139,7 +142,7 @@ def generate_text_table(data, max_width,
                         out_handle=sys.stdout,
                        ):
     if sorted_keys is None:
-        sorted_keys = sorted(data.keys())
+        sorted_keys = sorted(data.keys(), key=lambda k: str(k))
 
     # empty directory
     if len(data) == 0:
@@ -167,11 +170,11 @@ def generate_text_table(data, max_width,
             barSize = size
             barString = getBar(barSize, scale, log)
         out_handle.write("%s(%s)|%s\n" % (get13charName(str(key)),
-                                          getSizeString(size),
+                                          getSizeString(size/1024),
                                           barString))
 
     # print total
-    out_handle.write("Total: %s\n" % (getSizeString(tot)))
+    out_handle.write("Total: %s\n" % (getSizeString(tot/1024)))
 
 
 
@@ -181,6 +184,14 @@ def get_bin_bounds_string(bin_index, bin_bounds, to_str=repr, suffix=""):
 
 def get_file_sizes_and_dates_by_uid(volume, users=None, min_age=0):
     """ Collect date and size by user id """
+
+    # translate user ids to names
+    userid_map = get_user_lookup_table().to_dict()
+
+    # translate userids to names in include list
+    if users is not None:
+        users = set(userid_map.get(u, u) for u in users)
+
     usage_data = defaultdict(lambda: [])
     min_date = int(datetime.now().timestamp())
     now = datetime.now().timestamp()
@@ -191,7 +202,8 @@ def get_file_sizes_and_dates_by_uid(volume, users=None, min_age=0):
                 file_stats = os.stat(file_path)
 
                 # filter by owner if user list given
-                owner = file_stats.st_uid
+                ownerid = file_stats.st_uid
+                owner = userid_map.get(ownerid, ownerid)
                 if users is not None and owner not in users:
                     continue
 
@@ -244,7 +256,7 @@ def get_file_size_table(usage_data, min_date,
     # make into a data frame
     file_size_table = pandas.DataFrame(counts)
     # headers...
-    #users = get_user_lookup_table
+    #users = get_user_lookup_table()
     #file_size_table.columns = [users.get(c,c) for c in file_size_table.columns]
     
     file_size_table.index = \
