@@ -69,6 +69,7 @@ def main(arguments):
     text_width = int(arguments['--width'])
     age_bin_size = int(arguments['--size'])
     age_bin_type = arguments['--type']
+    follow_links = arguments['--follow_links']
 
     min_age = int(arguments['--age'])
     logging.info("Looking for files at least %d %s old", min_age, age_bin_type,)
@@ -82,6 +83,7 @@ def main(arguments):
     vol_data, min_date = get_file_sizes_and_dates_by_uid(volume,
                                                          user_list,
                                                          min_age,
+                                                         follow_links=follow_links,
                                                         )
 
     logging.info("Found files for %d users", len(vol_data))
@@ -182,7 +184,7 @@ def get_bin_bounds_string(bin_index, bin_bounds, to_str=repr, suffix=""):
     return "{} to {} {}".format(to_str(bin_bounds[bin_index]), to_str(bin_bounds[bin_index + 1]), suffix)
 
 
-def get_file_sizes_and_dates_by_uid(volume, users=None, min_age=0):
+def get_file_sizes_and_dates_by_uid(volume, users=None, min_age=0, follow_links=False):
     """ Collect date and size by user id """
 
     # translate user ids to names
@@ -195,10 +197,13 @@ def get_file_sizes_and_dates_by_uid(volume, users=None, min_age=0):
     usage_data = defaultdict(lambda: [])
     min_date = int(datetime.now().timestamp())
     now = datetime.now().timestamp()
-    for root_path, folder_list, file_list in os.walk(volume):
+    for root_path, folder_list, file_list in os.walk(volume, followlinks=follow_links):
         for file_name in file_list:
             try:
                 file_path = os.path.join(root_path, file_name)
+                if not(os.path.isfile(file_path)):
+                    # skip broken links
+                    continue
                 file_stats = os.stat(file_path)
 
                 # filter by owner if user list given
