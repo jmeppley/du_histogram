@@ -49,11 +49,10 @@ def getBar(value, scale, log):
     s=char
     while len(s)<width:
         if log:
-            char=logChars[int(ceil(len(logChars)*value/float(maxVal))-1)]
+            char=logChars[int(math.ceil(len(logChars)*value/float(maxVal))-1)]
         s+=char
     return s
 
-from numpy import ceil
 logChars=['-','~','=','#']
 def getLogBar(value, scale, maxWidth, log):
     """
@@ -66,7 +65,7 @@ def getLogBar(value, scale, maxWidth, log):
     s=char
     while len(s)<width:
         if log:
-            char=logChars[int(ceil(len(logChars)*len(s)/float(maxWidth))-1)]
+            char=logChars[int(math.ceil(len(logChars)*len(s)/float(maxWidth))-1)]
         s+=char
     return s
 
