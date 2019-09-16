@@ -6,7 +6,7 @@ Calculates the usage of all files in the given (or current) directory and plots
 an ASCII histogram of sizes. Omit directory name to process current dir.
 
 Usage:
-  duhist.py [-ltX] [-w WIDTH] [<directory>]
+  duhist.py [options] [<directory>]
   duhist.py -h | --help
   duhist.py --version
 
@@ -17,20 +17,23 @@ Options:
   -t, --time     Print and sort by age. (10m -> 10 months, 5h -> 5 hours)
   -X, --allfs    Cross file system boundaries (don't use du -x)
   -w <WIDTH>     Width of text to print [default: 80]
+  -W <WIDTH>     Width of filename column [default: 13]
 """
 
 from docopt import docopt
 import subprocess, sys, os, time
-import numpy as np
+import math
 
 ###############
 # Functions
 ###############
-def get13charName(name):
-    if len(name)>13:
+def get13charName(name, name_width=13):
+    if len(name) > name_width:
         # remove middle and insert elipsis to get to 13 characters
-        return name[:5]+'***'+name[-5:]
-    while len(name)<13:
+        start_end = math.ceil((name_width - 3)/2)
+        end_start = math.ceil((3 - name_width)/2)
+        return name[:start_end]+'***'+name[end_start:]
+    while len(name) < name_width:
         # pad with trailing space to get to 13 characters
         name+=' '
     return name
@@ -128,12 +131,16 @@ def main(arguments):
         timeSort = arguments["--time"]
         one_fs = not arguments["--allfs"]
         max_width = int(arguments["-w"])
+        name_width = int(arguments["-W"])
         directory=arguments['<directory>']
     except KeyError:
         print(repr(arguments))
         raise
     if directory is None:
         directory = "."
+
+    if name_width < 5:
+        raise Exception("The name column must be at least 5 characters wide!")
 
     # run du
     one_fs_arg = "-x" if one_fs else ""
@@ -167,7 +174,7 @@ def main(arguments):
         sys.exit("ERROR: %s is empty" % (directory))
 
     # figure out range (may be more efficient to do while parsing, but not worth it)
-    label_width = 19
+    label_width = name_width + 6
     if timeSort:
         label_width += 4
     width = max_width - label_width
@@ -176,7 +183,7 @@ def main(arguments):
 
     # log
     if log:
-        maxVal=np.log(maxVal)
+        maxVal=math.log(maxVal)
 
     scale=maxVal/float(width)
 
@@ -184,7 +191,7 @@ def main(arguments):
     for name in sorted_names:
         size=sizeMap[name]
         if log and size>0:
-            barSize=np.log(size)
+            barSize=math.log(size)
             barString=getLogBar(barSize,scale,width, log)
         else:
             barSize=size
@@ -193,9 +200,9 @@ def main(arguments):
             sys.stdout.write(get3charAge(now - date_map[name]))
             sys.stdout.write(" ")
         if os.path.isdir(name):
-            sys.stdout.write("%s(%s)|%s\n" % (get13charName(name),getSizeString(size),barString))
+            sys.stdout.write("%s(%s)|%s\n" % (get13charName(name, name_width),getSizeString(size),barString))
         else:
-            sys.stdout.write("%s %s |%s\n" % (get13charName(name),getSizeString(size),barString))
+            sys.stdout.write("%s %s |%s\n" % (get13charName(name, name_width),getSizeString(size),barString))
 
     # print total
     sys.stdout.write("Total: %s\n" % (getSizeString(tot)))
