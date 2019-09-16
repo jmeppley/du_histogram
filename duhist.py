@@ -208,5 +208,5 @@ def main(arguments):
     sys.stdout.write("Total: %s\n" % (getSizeString(tot)))
 
 if __name__ == '__main__':
-    arguments=docopt(__doc__, version='duhist 0.9')
+    arguments=docopt(__doc__, version='duhist 0.9.1')
     main(arguments)
