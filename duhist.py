@@ -185,11 +185,11 @@ def main(arguments):
                 map_name = name if len(du_paths) == 1 else full_name
                 size_map[map_name] = size
                 if time_sort:
-                    date_map[map_name] = os.path.getmtime(full_name)
+                    date_map[map_name] = os.lstat(full_name).st_mtime
         else:
             size_map[path] = du_file(path, one_fs)
             if time_sort:
-                date_map[path] = os.path.getmtime(path)
+                date_map[map_name] = os.lstat(path).st_mtime
 
     # sort names by size
     if time_sort:
@@ -237,5 +237,5 @@ def main(arguments):
     sys.stdout.write("Total: %s\n" % (getSizeString(tot)))
 
 if __name__ == '__main__':
-    arguments = docopt(__doc__, version='duhist 0.9.2')
+    arguments = docopt(__doc__, version='duhist 0.9.3')
     main(arguments)

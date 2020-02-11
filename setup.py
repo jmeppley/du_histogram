@@ -27,6 +27,7 @@ setup(name=NAME,
       download_url=DOWNLOAD_URL,
       license=LICENSE,
       scripts=['duhist.py',],
+      install_requires=('docopt'),
       classifiers=[
           'Development Status :: 4 - Beta',
           'Environment :: Console',
