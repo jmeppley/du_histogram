@@ -13,6 +13,7 @@ Usage:
 Options:
   -h, --help     Show this screen.
   --version      Show version.
+  -d, --debug    Print debug messages.
   -l, --log      Use log scale. (Chars - ~ = and # indicate order of mag)
   -t, --time     Print and sort by age. (10m -> 10 months, 5h -> 5 hours)
   -X, --allfs    Cross file system boundaries (don't use du -x)
@@ -21,7 +22,7 @@ Options:
 """
 
 from docopt import docopt
-import subprocess, sys, os, time
+import subprocess, sys, os, time, logging
 import math
 
 ###############
@@ -110,19 +111,29 @@ def du_directory(directory, one_fs):
     """
     # run du
     one_fs_arg = "-x" if one_fs else ""
-    print('command: du --max-depth 0 %s -k *' % (one_fs_arg))
-    print('cwd: %s' % (directory))
+    logging.debug('command: du --max-depth 0 %s -k *' % (one_fs_arg))
+    logging.debug('cwd: %s' % (directory))
     p = subprocess.Popen('du --max-depth 0 %s -k *' % (one_fs_arg),
                        shell=True,
                        stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE,
                        cwd=directory)
 
     # get file and size from each line
-    for line in p.stdout:
-        if not isinstance(line, str):
-            line = line.decode()
+    for line in maybe_decode(p.stdout):
         cells = line.rstrip('\n\r').split(None,1)
         yield cells[1], int(cells[0])
+
+    # check for error message
+    error_msgs = "\n".join(maybe_decode(p.stderr))
+    if len(error_msgs) > 0:
+        logging.warning("du reports an error: " + error_msgs)
+
+def maybe_decode(lines):
+    for line in lines:
+        if not isinstance(line, str):
+            line = line.decode()
+        yield line
 
 def du_file(filename, one_fs):
     """
@@ -130,9 +141,10 @@ def du_file(filename, one_fs):
     """
     # run du
     one_fs_arg = "-x" if one_fs else ""
-    print('command: du --max-depth 0 %s -k %s' % (one_fs_arg, filename))
+    logging.debug('command: du --max-depth 0 %s -k %s' % (one_fs_arg, filename))
     p = subprocess.Popen('du --max-depth 0 %s -k %s' % (one_fs_arg, filename),
                        shell=True,
+                       stderr=subprocess.PIPE,
                        stdout=subprocess.PIPE)
 
     # get file and size from each line
@@ -158,6 +170,7 @@ def main(arguments):
     """
     ##TODO: fix log and time_sort arguments
     try:
+        debug = arguments['--debug']
         log = arguments["--log"]
         time_sort = arguments["--time"]
         one_fs = not arguments["--allfs"]
@@ -165,8 +178,13 @@ def main(arguments):
         name_width = int(arguments["-W"])
         du_paths = arguments['<path>']
     except KeyError:
+        print("ERROR decoding arguments.")
         print(repr(arguments))
         raise
+
+    log_level = logging.DEBUG if debug else logging.INFO
+    logging.basicConfig(level=log_level)
+
     if du_paths is None or len(du_paths) == 0:
         du_paths = [".",]
 
@@ -200,7 +218,7 @@ def main(arguments):
 
     # empty directory
     if len(size_map) == 0:
-        sys.exit("ERROR: %s is empty" % (directory))
+        sys.exit("ERROR: No results from paths: %s" % (",".join(du_paths)))
 
     # figure out range (may be more efficient to do while parsing, but not worth it)
     label_width = name_width + 6

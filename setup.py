@@ -13,7 +13,7 @@ MAINTAINER_EMAIL = "jmeppley@gmail.com"
 URL = 'http://github.com/jmeppley/du_histogram'
 DOWNLOAD_URL = 'http://github.com/jmeppley/du_histogram'
 LICENSE = 'Apache'
-VERSION = '2.0'
+VERSION = '0.9.3'
 
 setup(name=NAME,
       version=VERSION,
