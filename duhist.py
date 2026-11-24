@@ -1,259 +1,358 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Disk Usage Histogram
 
 Calculates the usage of all files in the given (or current) path(s) and plots
 an ASCII histogram of sizes. Omit path name to process current dir.
-
-Usage:
-  duhist.py [options] [<path>...]
-  duhist.py -h | --help
-  duhist.py --version
-
-Options:
-  -h, --help     Show this screen.
-  --version      Show version.
-  -d, --debug    Print debug messages.
-  -l, --log      Use log scale. (Chars - ~ = and # indicate order of mag)
-  -t, --time     Print and sort by age. (10m -> 10 months, 5h -> 5 hours)
-  -X, --allfs    Cross file system boundaries (don't use du -x)
-  -w <WIDTH>     Width of text to print [default: 80]
-  -W <WIDTH>     Width of filename column [default: 13]
 """
 
-from docopt import docopt
-import subprocess, sys, os, time, logging
+import argparse
+import logging
 import math
+import os
+import subprocess
+import sys
+import time
+from dataclasses import dataclass
+
+__version__ = "0.10.0"
+
+LOG_CHARS = ["-", "~", "=", "#"]
+SIZE_SUFFIXES = ["K", "M", "G", "T", "P", "E"]
+AGE_UNITS = {"y": 24 * 3600 * 365, "m": 24 * 3600 * 30, "d": 24 * 3600, "h": 3600}
+MIN_NAME_WIDTH = 5
+
+logger = logging.getLogger("duhist")
+
+
+@dataclass
+class UsageEntry:
+    """Disk usage of one file or directory, as reported by du."""
+
+    display_name: str
+    full_path: str
+    size_kb: int
+    mtime: float | None = None
+
+    @property
+    def is_dir(self):
+        """True if this entry is a directory (not following symlinks)."""
+        return os.path.isdir(self.full_path) and not os.path.islink(self.full_path)
+
 
 ###############
-# Functions
+# Formatting
 ###############
-def get13charName(name, name_width=13):
+def format_name(name, name_width=13):
+    """
+    Return name padded or truncated to exactly name_width characters.
+
+    Long names have their middle replaced with '***' so that both the
+    start and the end of the name remain visible.
+    """
     if len(name) > name_width:
-        # remove middle and insert elipsis to get to 13 characters
-        start_end = math.ceil((name_width - 3)/2)
-        end_start = math.ceil((3 - name_width)/2)
-        return name[:start_end]+'***'+name[end_start:]
-    while len(name) < name_width:
-        # pad with trailing space to get to 13 characters
-        name += ' '
-    return name
+        start_length = math.ceil((name_width - 3) / 2)
+        end_length = name_width - 3 - start_length
+        tail = name[-end_length:] if end_length > 0 else ""
+        return name[:start_length] + "***" + tail
+    return name.ljust(name_width)
 
-def getBar(value, scale, log):
-    """
-    return string of equal signs ('=') based on value and scale
-    """
-    width = value/scale
-    if width<1:
-        return ''
-    char = '='
-    s = char
-    while len(s)<width:
-        if log:
-            char = logChars[int(math.ceil(len(logChars)*value/float(maxVal))-1)]
-        s += char
-    return s
 
-logChars = ['-', '~', '=', '#']
-def getLogBar(value, scale, maxWidth, log):
+def get_bar(value, scale):
     """
-    return string of various signs (-,~,=,#) based on value and scale
+    Return a string of equal signs ('=') whose length is value / scale,
+    rounded up. Values smaller than one unit of scale get an empty bar.
     """
-    width = value / scale
-    if width < 1:
-        return ''
-    char = logChars[0]
-    s = char
-    while len(s) < width:
-        if log:
-            char = logChars[int(math.ceil(len(logChars)*len(s)/float(maxWidth))-1)]
-        s += char
-    return s
+    if scale <= 0:
+        return ""
+    bar_length = value / scale
+    if bar_length < 1:
+        return ""
+    return "=" * math.ceil(bar_length)
 
-steps = ['K','M','G','T','P']
-def getSizeString(val):
-    """
-    Given number of kilobytes, return string like 34K or .4M or 4T.
-    Will always be 3 characters lone
-    """
 
-    # first, figure out ourder of magnitude
-    size = float(val)
-    step = 0
-    while size > 99:
+def get_log_bar(value, scale, max_width):
+    """
+    Return a bar of length value / scale (rounded up) for log-scaled values.
+
+    The bar character changes (-, ~, =, #) as the bar grows across
+    max_width, so each character roughly indicates an order of magnitude.
+    """
+    if scale <= 0:
+        return ""
+    bar_length = value / scale
+    if bar_length < 1:
+        return ""
+    bar_chars = [LOG_CHARS[0]]
+    while len(bar_chars) < bar_length:
+        char_index = math.ceil(len(LOG_CHARS) * len(bar_chars) / float(max_width)) - 1
+        char_index = min(max(char_index, 0), len(LOG_CHARS) - 1)
+        bar_chars.append(LOG_CHARS[char_index])
+    return "".join(bar_chars)
+
+
+def get_size_string(size_kb):
+    """
+    Given a number of kilobytes, return a short string like 34K, .4M or 4T.
+    The result is always 3 characters long.
+    """
+    size = float(size_kb)
+    suffix_index = 0
+    while size > 99 and suffix_index < len(SIZE_SUFFIXES) - 1:
         size /= 1024
-        step += 1
+        suffix_index += 1
 
-    # next, format
-    if size >= .95:
-        size = '%2.f' % size
+    if size >= 0.95:
+        size_string = f"{size:2.0f}"
     else:
-        size = '%.1f' % size
-        size = size[-2:]
+        size_string = f"{size:.1f}"[-2:]
+    return size_string + SIZE_SUFFIXES[suffix_index]
 
-    # add suffix
-    size += steps[step]
-    return size
 
-units = {'h':3600, 'd':24*3600, 'm':24*3600*30, 'y':24*3600*365}
-def get3charAge(age_s):
-    for unit in sorted(units.keys(), key=lambda u: units[u], reverse=True):
-        unit_size = units[unit]
-        unit_count = age_s/float(unit_size)
+def get_age_string(age_seconds):
+    """
+    Return a 3 character age string such as '10m' (10 months) or '05h' (5 hours).
+
+    The largest unit with at least 1.5 units of age is used. Anything
+    younger than 1.5 hours is reported as '00h'.
+    """
+    for unit, unit_seconds in AGE_UNITS.items():
+        unit_count = age_seconds / float(unit_seconds)
         if unit_count >= 1.5:
-            return '{:02d}{}'.format(int(unit_count), unit)
-    else:
-        return "00h"
+            return f"{int(unit_count):02d}{unit}"
+    return "00h"
+
+
+###############
+# Running du
+###############
+def build_du_command(targets, one_fs):
+    """
+    Return the du argument list for the given targets.
+
+    Uses only options shared by GNU (Linux) and BSD (macOS) du.
+    """
+    command = ["du", "-d", "0", "-k"]
+    if one_fs:
+        command.append("-x")
+    command.append("--")
+    command.extend(targets)
+    return command
+
+
+def run_du(targets, one_fs, cwd=None):
+    """
+    Run du on the given targets and yield (name, size_kb) for each output line.
+
+    Any error output from du (e.g. permission denied) is logged as a warning.
+    """
+    command = build_du_command(targets, one_fs)
+    logger.debug("command: %s", " ".join(command))
+    logger.debug("cwd: %s", cwd or ".")
+    result = subprocess.run(
+        command, cwd=cwd, capture_output=True, text=True, errors="replace", check=False
+    )
+    if result.stderr.strip():
+        logger.warning("du reports an error: %s", result.stderr.strip())
+
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+        size_text, name = line.split("\t", 1)
+        yield name, int(size_text)
+
 
 def du_directory(directory, one_fs):
     """
-    get folder contents by cd-ing in and using glob (*)
+    Yield (name, size_kb) for each non-hidden item in directory.
+
+    This matches the behavior of running 'du *' inside the directory.
     """
-    # run du
-    one_fs_arg = "-x" if one_fs else ""
-    logging.debug('command: du --max-depth 0 %s -k *' % (one_fs_arg))
-    logging.debug('cwd: %s' % (directory))
-    p = subprocess.Popen('du --max-depth 0 %s -k *' % (one_fs_arg),
-                       shell=True,
-                       stdout=subprocess.PIPE,
-                       stderr=subprocess.PIPE,
-                       cwd=directory)
+    names = sorted(name for name in os.listdir(directory) if not name.startswith("."))
+    if not names:
+        return
+    yield from run_du(names, one_fs, cwd=directory)
 
-    # get file and size from each line
-    for line in maybe_decode(p.stdout):
-        cells = line.rstrip('\n\r').split(None,1)
-        yield cells[1], int(cells[0])
-
-    # check for error message
-    error_msgs = "\n".join(maybe_decode(p.stderr))
-    if len(error_msgs) > 0:
-        logging.warning("du reports an error: " + error_msgs)
-
-def maybe_decode(lines):
-    for line in lines:
-        if not isinstance(line, str):
-            line = line.decode()
-        yield line
 
 def du_file(filename, one_fs):
-    """
-    get file size with du
-    """
-    # run du
-    one_fs_arg = "-x" if one_fs else ""
-    logging.debug('command: du --max-depth 0 %s -k %s' % (one_fs_arg, filename))
-    p = subprocess.Popen('du --max-depth 0 %s -k %s' % (one_fs_arg, filename),
-                       shell=True,
-                       stderr=subprocess.PIPE,
-                       stdout=subprocess.PIPE)
+    """Return the size in kilobytes of a single file (or directory as a whole)."""
+    for _name, size_kb in run_du([filename], one_fs):
+        return size_kb
+    raise RuntimeError(f"du returned no output for {filename}")
 
-    # get file and size from each line
-    line = next(iter(p.stdout))
-    if not isinstance(line, str):
-        line = line.decode()
-    cells = line.rstrip('\n\r').split(None,1)
-    return int(cells[0])
+
+def get_mtime(path):
+    """Return the modification time of path, without following symlinks."""
+    return os.lstat(path).st_mtime
+
+
+def collect_usage(paths, one_fs=True, with_mtime=False):
+    """
+    Return a list of UsageEntry objects for the given paths.
+
+    Directories are expanded to their (non-hidden) contents; files are
+    reported as is. When only one path is given, entry names are shown
+    relative to it; otherwise the full path is shown.
+    """
+    entries = []
+    show_full_path = len(paths) > 1
+    for path in paths:
+        if os.path.isdir(path):
+            for name, size_kb in du_directory(path, one_fs):
+                full_path = os.path.join(path, name)
+                display_name = full_path if show_full_path else name
+                entries.append(UsageEntry(display_name, full_path, size_kb))
+        else:
+            entries.append(UsageEntry(path, path, du_file(path, one_fs)))
+
+    if with_mtime:
+        for entry in entries:
+            entry.mtime = get_mtime(entry.full_path)
+    return entries
+
+
+###############
+# Histogram
+###############
+def format_histogram(
+    entries, max_width=80, name_width=13, log_scale=False, time_sort=False, now=None
+):
+    """
+    Return the histogram for entries as a list of text lines.
+
+    Entries are sorted by size (or by age if time_sort is set), and the
+    last line gives the total size.
+    """
+    if time_sort:
+        now = time.time() if now is None else now
+        sorted_entries = sorted(entries, key=lambda entry: entry.mtime)
+    else:
+        sorted_entries = sorted(entries, key=lambda entry: entry.size_kb)
+
+    label_width = name_width + 6
+    if time_sort:
+        label_width += 4
+    bar_width = max(max_width - label_width, 1)
+
+    total_kb = sum(entry.size_kb for entry in entries)
+    max_value = max(entry.size_kb for entry in entries)
+    if log_scale:
+        max_value = math.log(max_value) if max_value > 0 else 0
+    scale = max_value / float(bar_width)
+
+    lines = []
+    for entry in sorted_entries:
+        if log_scale:
+            log_size = math.log(entry.size_kb) if entry.size_kb > 0 else 0
+            bar = get_log_bar(log_size, scale, bar_width)
+        else:
+            bar = get_bar(entry.size_kb, scale)
+
+        prefix = ""
+        if time_sort:
+            prefix = get_age_string(now - entry.mtime) + " "
+        name = format_name(entry.display_name, name_width)
+        size_string = get_size_string(entry.size_kb)
+        if entry.is_dir:
+            lines.append(f"{prefix}{name}({size_string})|{bar}")
+        else:
+            lines.append(f"{prefix}{name} {size_string} |{bar}")
+
+    lines.append(f"Total: {get_size_string(total_kb)}")
+    return lines
+
 
 ###########
 # Main code
 ###########
-def main(arguments):
-    """
-    Arguments from docopt like:
-    {
-          "--help": false, 
-          "--log": true, 
-          "--time": true, 
-          "--version": false, 
-          "<path>": "."
-    }
-    """
-    ##TODO: fix log and time_sort arguments
-    try:
-        debug = arguments['--debug']
-        log = arguments["--log"]
-        time_sort = arguments["--time"]
-        one_fs = not arguments["--allfs"]
-        max_width = int(arguments["-w"])
-        name_width = int(arguments["-W"])
-        du_paths = arguments['<path>']
-    except KeyError:
-        print("ERROR decoding arguments.")
-        print(repr(arguments))
-        raise
+def build_parser():
+    """Return the command line argument parser."""
+    parser = argparse.ArgumentParser(
+        prog="duhist",
+        description="Calculates the usage of all files in the given (or current) "
+        "path(s) and plots an ASCII histogram of sizes. Directories are shown "
+        "with their size in parentheses.",
+    )
+    parser.add_argument(
+        "paths", metavar="path", nargs="*", help="Files or directories (default: .)"
+    )
+    parser.add_argument("--version", action="version", version="duhist " + __version__)
+    parser.add_argument(
+        "-d", "--debug", action="store_true", help="Print debug messages."
+    )
+    parser.add_argument(
+        "-l",
+        "--log",
+        action="store_true",
+        help="Use log scale. (Chars - ~ = and # indicate order of mag)",
+    )
+    parser.add_argument(
+        "-t",
+        "--time",
+        action="store_true",
+        help="Print and sort by age. (10m -> 10 months, 5h -> 5 hours)",
+    )
+    parser.add_argument(
+        "-X",
+        "--allfs",
+        action="store_true",
+        help="Cross file system boundaries (don't use du -x)",
+    )
+    parser.add_argument(
+        "-w",
+        dest="width",
+        metavar="WIDTH",
+        type=int,
+        default=80,
+        help="Width of text to print [default: %(default)s]",
+    )
+    parser.add_argument(
+        "-W",
+        dest="name_width",
+        metavar="WIDTH",
+        type=int,
+        default=13,
+        help="Width of filename column [default: %(default)s]",
+    )
+    return parser
 
-    log_level = logging.DEBUG if debug else logging.INFO
-    logging.basicConfig(level=log_level)
 
-    if du_paths is None or len(du_paths) == 0:
-        du_paths = [".",]
+def main(argv=None):
+    """Parse command line arguments, run du, and print the histogram."""
+    parser = build_parser()
+    arguments = parser.parse_args(argv)
 
-    if name_width < 5:
-        raise Exception("The name column must be at least 5 characters wide!")
+    logging.basicConfig(
+        level=logging.DEBUG if arguments.debug else logging.INFO,
+        format="%(levelname)s: %(message)s",
+    )
 
-    size_map = {}
-    if time_sort:
-        date_map = {}
+    if arguments.name_width < MIN_NAME_WIDTH:
+        parser.error(
+            f"The name column must be at least {MIN_NAME_WIDTH} characters wide!"
+        )
 
-    for path in du_paths:
-        if os.path.isdir(path):
-            for name, size in du_directory(path, one_fs):
-                full_name = os.path.join(path, name)
-                # hide dir name if only processing one
-                map_name = name if len(du_paths) == 1 else full_name
-                size_map[map_name] = size
-                if time_sort:
-                    date_map[map_name] = os.lstat(full_name).st_mtime
-        else:
-            size_map[path] = du_file(path, one_fs)
-            if time_sort:
-                date_map[map_name] = os.lstat(path).st_mtime
+    paths = arguments.paths or ["."]
+    for path in paths:
+        if not os.path.lexists(path):
+            parser.error(f"No such file or directory: {path}")
 
-    # sort names by size
-    if time_sort:
-        now = time.time()
-        sorted_names = sorted(size_map.keys(),key=lambda x: date_map[x])
-    else:
-        sorted_names = sorted(size_map.keys(),key=lambda x: size_map[x])
+    entries = collect_usage(
+        paths, one_fs=not arguments.allfs, with_mtime=arguments.time
+    )
+    if not entries:
+        sys.exit(f"ERROR: No results from paths: {','.join(paths)}")
 
-    # empty directory
-    if len(size_map) == 0:
-        sys.exit("ERROR: No results from paths: %s" % (",".join(du_paths)))
+    lines = format_histogram(
+        entries,
+        max_width=arguments.width,
+        name_width=arguments.name_width,
+        log_scale=arguments.log,
+        time_sort=arguments.time,
+    )
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
 
-    # figure out range (may be more efficient to do while parsing, but not worth it)
-    label_width = name_width + 6
-    if time_sort:
-        label_width += 4
-    width = max_width - label_width
-    tot = sum(size_map.values())
-    maxVal = max(size_map.values())
 
-    # log
-    if log:
-        maxVal = math.log(maxVal)
-
-    scale = maxVal/float(width)
-
-    # print histogram
-    for name in sorted_names:
-        size = size_map[name]
-        if log and size>0:
-            barSize = math.log(size)
-            barString = getLogBar(barSize,scale,width, log)
-        else:
-            barSize = size
-            barString = getBar(barSize,scale, log)
-        if time_sort:
-            sys.stdout.write(get3charAge(now - date_map[name]))
-            sys.stdout.write(" ")
-        if os.path.isdir(name):
-            sys.stdout.write("%s(%s)|%s\n" % (get13charName(name, name_width),getSizeString(size),barString))
-        else:
-            sys.stdout.write("%s %s |%s\n" % (get13charName(name, name_width),getSizeString(size),barString))
-
-    # print total
-    sys.stdout.write("Total: %s\n" % (getSizeString(tot)))
-
-if __name__ == '__main__':
-    arguments = docopt(__doc__, version='duhist 0.9.3')
-    main(arguments)
+if __name__ == "__main__":
+    sys.exit(main())
