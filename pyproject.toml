@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "du_histogram"
+dynamic = ["version"]
+description = "Simple ASCII histogram of du (disk usage) output"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "John Eppley" }]
+requires-python = ">=3.10"
+dependencies = []
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: System Administrators",
+    "Natural Language :: English",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: System :: Filesystems",
+    "Topic :: Utilities",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.urls]
+Homepage = "https://github.com/jmeppley/du_histogram"
+Issues = "https://github.com/jmeppley/du_histogram/issues"
+
+[project.scripts]
+duhist = "du_histogram:main"
+# Keep the original script name working for existing users
+"duhist.py" = "du_histogram:main"
+
+[tool.setuptools]
+py-modules = ["du_histogram"]
+
+[tool.setuptools.dynamic]
+version = { attr = "du_histogram.__version__" }

@@ -1,0 +1,43 @@
+{% set name = "du_histogram" %}
+{% set version = "0.10.0" %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  git_url: https://github.com/jmeppley/{{ name }}
+  git_rev: v{{ version }}
+
+build:
+  number: 0
+  noarch: python
+  script: {{ PYTHON }} -m pip install --no-deps --no-build-isolation -vv .
+  entry_points:
+    - duhist = du_histogram:main
+    - duhist.py = du_histogram:main
+
+requirements:
+  host:
+    - python >=3.10
+    - pip
+    - setuptools >=77
+  run:
+    - python >=3.10
+
+test:
+  imports:
+    - du_histogram
+  commands:
+    - duhist --help
+    - duhist --version
+    - duhist.py -h
+    - duhist
+    - duhist -w 90 -W 15
+    - duhist -l -t .
+
+about:
+  home: https://github.com/jmeppley/{{ name }}
+  summary: Simple ASCII histogram of du (disk usage) output
+  license: Apache-2.0
+  license_file: LICENSE
