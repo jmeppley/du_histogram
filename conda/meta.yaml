@@ -1,13 +1,14 @@
 {% set name = "du_histogram" %}
 {% set version = "0.10.0" %}
+{% set sha256 = "5fd9d287d6055eb2b75451377d8eddb3a361b41b9d3ac021256f3e371d215707" %}
 
 package:
   name: {{ name|lower }}
   version: {{ version }}
 
 source:
-  git_url: https://github.com/jmeppley/{{ name }}
-  git_rev: v{{ version }}
+  url: https://github.com/jmeppley/{{ name }}/archive/refs/tags/v{{ version }}.tar.gz
+  sha256: {{ sha256 }}
 
 build:
   number: 0
@@ -28,7 +29,10 @@ requirements:
 test:
   imports:
     - du_histogram
+  requires:
+    - pip
   commands:
+    - pip check
     - duhist --help
     - duhist --version
     - duhist.py -h
