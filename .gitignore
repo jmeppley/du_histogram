@@ -102,3 +102,6 @@ ENV/
  
 # vim
 *.sw[po]
+
+# ruff
+.ruff_cache/
