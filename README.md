@@ -1,4 +1,6 @@
 # du_histogram
+[![tests](https://github.com/jmeppley/du_histogram/actions/workflows/tests.yml/badge.svg)](https://github.com/jmeppley/du_histogram/actions/workflows/tests.yml)
+
 Simple ASCII histogram of du (disk usage) output
 
 ```
@@ -77,3 +79,13 @@ options:
 
 When more than one path is given, each directory's contents are listed with
 their full path.
+
+## Development
+Install with the test extras and run the test suite with pytest:
+
+```
+pip install -e ".[test]"
+pytest
+```
+
+Tests run on Linux and macOS for Python 3.10 through 3.15 in GitHub Actions.

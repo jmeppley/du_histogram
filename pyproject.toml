@@ -43,3 +43,8 @@ py-modules = ["du_histogram"]
 
 [tool.setuptools.dynamic]
 version = { attr = "du_histogram.__version__" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Import du_histogram from the checkout when it isn't installed
+pythonpath = ["."]
